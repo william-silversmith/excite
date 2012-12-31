@@ -57,7 +57,7 @@ for flag, value in opts:
 
 if len(args) < 1:
     print "You must provide an input file."
-    sys.exit()
+    usage()
 
 infile = args[0]
 
