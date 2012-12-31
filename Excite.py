@@ -17,6 +17,24 @@ def alltext(node):
         text += t
     return text
 
+def maybestr(obj):
+    if obj is None:
+        return ""
+    return str(obj)
+
+def remove(node, xpath, tag):
+    """Remove this node from its parent."""
+    
+    parent = node.find(xpath + "/..")
+
+    if parent is None:
+        return
+
+    for child in parent:
+        if child.tag == tag:
+            parent.text += maybestr(child.text) + maybestr(child.tail)
+            parent.remove(child)
+
 
 class Bibliography(object):
     """Represents the bibliography. Notes the order of citations and renders the
@@ -126,6 +144,11 @@ class ApplePages(WordProcessingDocument):
         with zipfile.ZipFile(filename, 'r') as pageszip:
             self.document = ElementTree.XML(pageszip.read(ApplePages.primarydocument))
 
+        # Sometimes the insertion point can be inside the citation and
+        # prevent correct parsing
+        remove(self.document, self.ns('.//sf:insertion-point'), self.ns('sf:insertion-point'))
+        
+
     def ProcessCitations(self, style='square-brace', order='citation-first'):
         """Internally construct a version of the document that has the citations properly created."""
         assert style in self.supportedstyles
@@ -140,7 +163,10 @@ class ApplePages(WordProcessingDocument):
             searchtext = alltext(node)
             citationmatch = re.findall(self.citationformat, searchtext)
             
+            print searchtext
+
             if len(citationmatch):
+                print citationmatch
                 citationnodes.append(node)
                 for label in citationmatch:
                     bibliography.AddCitation(label)
@@ -149,7 +175,7 @@ class ApplePages(WordProcessingDocument):
 
             if bibitemmatch:
                 bibnodes.append(node)
-                bibliography.AddReference(bibitemmatch.group(1), bibitemmatch.group(2).strip())
+                bibliography.AddReference(bibitemmatch.group(1), node)
 
         if bibliography.IsConsistent() == False:
             raise ValueError("Citations and references are not one-to-one.")
@@ -182,12 +208,22 @@ class ApplePages(WordProcessingDocument):
         def traverse(node):
             node.text = replacecitation(node.text)
             node.tail = replacecitation(node.tail)
-            for nextnode in node.getchildren():
+            for nextnode in node:
                 traverse(nextnode)
 
         for node in citationnodes:
             traverse(node)
-    
+
+    def RenderCitation(self, style, index):
+        """Produces the final XML that represents the citation."""
+
+        assert style in ApplePages.supportedstyles
+
+        if style == 'square-brace':
+            return "[{0}]".format(index)
+
+        return str(index)    
+
     def __ReplaceBibitemMarkers(self, style, bibnodes, bibliography):
         """Helper method for ProcessCitations. Changes document to replace
         bibitems with the correct number and reference rendered in a particular style.
@@ -200,27 +236,18 @@ class ApplePages(WordProcessingDocument):
         Returns: Void
         """
         sequencenumber = 1
+
         for node in bibnodes:
-            (label, index, text) = bibliography.GetReferenceByIndex(sequencenumber)
+            (label, index, referencenode) = bibliography.GetReferenceByIndex(sequencenumber)
             
-            node.text = self.RenderReference(style=style, index=index, text=text)
+            node.text = self.RenderReference(style=style, index=index, node=referencenode)
             node.tail = None
             sequencenumber += 1
 
-    def RenderCitation(self, style, index):
-        """Produces the final XML that represents the citation."""
-
-        assert style in ApplePages.supportedstyles
-
-        if style == 'square-brace':
-            return "[{0}]".format(index)
-
-        return str(index)
-
-    def RenderReference(self, style, index, text):
+    def RenderReference(self, style, index, node):
         """Produces the final XML that represents the reference."""
 
-        return "{0}. {1}".format(index, text)
+        return "{0}. {1}".format(index, alltext(node))
 
     def Materialize(self, outputfilename):
         """Serializes the internal representation into a new pages file."""
