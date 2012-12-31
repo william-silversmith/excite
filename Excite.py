@@ -22,19 +22,15 @@ def maybestr(obj):
         return ""
     return str(obj)
 
-def remove(node, xpath, tag):
-    """Remove this node from its parent."""
-    
-    parent = node.find(xpath + "/..")
+def copyelement(fromnode, tonode):
+    tonode.clear()
+    tonode.tag = fromnode.tag
+    tonode.text = fromnode.text
+    tonode.tail = fromnode.tail
+    tonode.attrib = fromnode.attrib
 
-    if parent is None:
-        return
-
-    for child in parent:
-        if child.tag == tag:
-            parent.text += maybestr(child.text) + maybestr(child.tail)
-            parent.remove(child)
-
+    for i, child in enumerate(fromnode):
+        tonode.insert(i, child)
 
 class Bibliography(object):
     """Represents the bibliography. Notes the order of citations and renders the
@@ -87,7 +83,7 @@ class Bibliography(object):
 
     def GetReferenceByIndex(self, index):
         """Get (label, index, reference representation) by the reference's index."""
-        assert index <= self.ItemCount()
+        assert index <= self.Count()
 
         for label in self.order:
             if self.order[label] == index:
@@ -99,14 +95,15 @@ class Bibliography(object):
 
         return set(self.order.keys()) == set(self.references.keys())
 
-    def ItemCount(self):
+    def Count(self):
         return max(len(self.order), len(self.references))
 
 class WordProcessingDocument(object):
     """Represents a generic document that is supported by this system."""
     
     primarydocument = None
-    supportedstyles = ()
+    supportedcitestyles = ()
+    supportedbibstyles = ()
 
     def __init__(self, filename):
         self.filename = filename
@@ -125,7 +122,8 @@ class ApplePages(WordProcessingDocument):
     """Represents a processor for an Apple iWork Pages document."""
     
     primarydocument = 'index.xml' # Where in the zip archive is the primary XML document located
-    supportedstyles = ('square-brace')
+    supportedcitestyles = ('square-brace')
+    supportedbibstyles = ('digit-dot')
 
     # XML namespaces present in .pages XML
     xmlnamespaces = {
@@ -145,28 +143,31 @@ class ApplePages(WordProcessingDocument):
             self.document = ElementTree.XML(pageszip.read(ApplePages.primarydocument))
 
         # Sometimes the insertion point can be inside the citation and
-        # prevent correct parsing
-        remove(self.document, self.ns('.//sf:insertion-point'), self.ns('sf:insertion-point'))
-        
+        # prevent correct parsing.
+        insertionpointparent = self.document.find(self.ns('.//sf:insertion-point/..'))
+        if insertionpointparent is not None:
+            insertionpoint = self.document.find(self.ns('.//sf:insertion-point'))
+            insertionpointparent.text = maybestr(insertionpointparent.text) + maybestr(insertionpoint.text) + maybestr(insertionpoint.tail)
+            insertionpointparent.text += maybestr(insertionpointparent.tail)
+            insertionpointparent.tail = None
+            insertionpointparent.remove(insertionpoint)
+            
 
-    def ProcessCitations(self, style='square-brace', order='citation-first'):
+    def ProcessCitations(self, citestyle='square-brace', bibstyle='digit-dot', orderby='citation-first'):
         """Internally construct a version of the document that has the citations properly created."""
-        assert style in self.supportedstyles
-        assert order in ('citation-first', 'reference-first')
+        assert citestyle in self.supportedcitestyles
+        assert bibstyle in self.supportedbibstyles
+        assert orderby in ('citation-first', 'reference-first')
 
-        bibliography = Bibliography()
+        bibliography = Bibliography(orderby=orderby)
         citationnodes = []
         bibnodes = []
 
-        # ElementTree represents namespaces like so: sf:p -> {http://developer.apple.com/namespaces/sf}p
         for node in self.document.findall(self.ns('.//sf:text-body//sf:p')):
             searchtext = alltext(node)
             citationmatch = re.findall(self.citationformat, searchtext)
-            
-            print searchtext
 
             if len(citationmatch):
-                print citationmatch
                 citationnodes.append(node)
                 for label in citationmatch:
                     bibliography.AddCitation(label)
@@ -180,8 +181,8 @@ class ApplePages(WordProcessingDocument):
         if bibliography.IsConsistent() == False:
             raise ValueError("Citations and references are not one-to-one.")
         
-        self.__ReplaceCitationMarkers(style=style, citationnodes=citationnodes, bibliography=bibliography)
-        self.__ReplaceBibitemMarkers(style=style, bibnodes=bibnodes, bibliography=bibliography)
+        self.__ReplaceCitationMarkers(style=citestyle, citationnodes=citationnodes, bibliography=bibliography)
+        self.__ReplaceBibitemMarkers(style=bibstyle, bibnodes=bibnodes, bibliography=bibliography)
 
     def __ReplaceCitationMarkers(self, style, citationnodes, bibliography):
         """Helper method for ProcessCitations. Changes document to replace
@@ -217,7 +218,7 @@ class ApplePages(WordProcessingDocument):
     def RenderCitation(self, style, index):
         """Produces the final XML that represents the citation."""
 
-        assert style in ApplePages.supportedstyles
+        assert style in ApplePages.supportedcitestyles
 
         if style == 'square-brace':
             return "[{0}]".format(index)
@@ -235,19 +236,26 @@ class ApplePages(WordProcessingDocument):
         
         Returns: Void
         """
-        sequencenumber = 1
 
-        for node in bibnodes:
-            (label, index, referencenode) = bibliography.GetReferenceByIndex(sequencenumber)
-            
-            node.text = self.RenderReference(style=style, index=index, node=referencenode)
-            node.tail = None
-            sequencenumber += 1
+        renderednodes = []
+        for sequencenumber in range(1, bibliography.Count() + 1):
+            renderednodes.append(self.RenderReference(style=style, index=sequencenumber, bibliography=bibliography))
 
-    def RenderReference(self, style, index, node):
+        for domnode, rendernode in zip(bibnodes, renderednodes):
+            copyelement(fromnode=rendernode, tonode=domnode)
+
+    def RenderReference(self, style, index, bibliography):
         """Produces the final XML that represents the reference."""
+        assert style in self.supportedbibstyles
 
-        return "{0}. {1}".format(index, alltext(node))
+        (label, index, referencenode) = bibliography.GetReferenceByIndex(index)
+        rendernode = ElementTree.Element(self.ns("sf:p"))
+        copyelement(fromnode=referencenode, tonode=rendernode)
+
+        if style == 'digit-dot':
+            rendernode.text = re.sub(r'\\bibitem\{\w+\} ?', "{0}. ".format(index), rendernode.text)
+
+        return rendernode
 
     def Materialize(self, outputfilename):
         """Serializes the internal representation into a new pages file."""
@@ -261,6 +269,8 @@ class ApplePages(WordProcessingDocument):
 
     def ns(self, string):
         """Provides transformation of namespaced tags into something ElementTree can understand."""
+
+        # ElementTree represents namespaces like so: sf:p -> {http://developer.apple.com/namespaces/sf}p
         for namespace in ApplePages.xmlnamespaces.keys():
             pattern = namespace + ":"
             string = re.sub(pattern, "{{{0}}}".format(ApplePages.xmlnamespaces[namespace]), string)
