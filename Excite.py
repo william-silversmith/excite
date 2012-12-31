@@ -123,7 +123,7 @@ class ApplePages(WordProcessingDocument):
     
     primarydocument = 'index.xml' # Where in the zip archive is the primary XML document located
     supportedcitestyles = ('square-brace')
-    supportedbibstyles = ('digit-dot')
+    supportedbibstyles = ('square-brace', 'digit-dot')
 
     # XML namespaces present in .pages XML
     xmlnamespaces = {
@@ -253,7 +253,11 @@ class ApplePages(WordProcessingDocument):
         copyelement(fromnode=referencenode, tonode=rendernode)
 
         if style == 'digit-dot':
-            rendernode.text = re.sub(r'\\bibitem\{\w+\} ?', "{0}. ".format(index), rendernode.text)
+            replacementtext = "{0}. "
+        elif style == 'square-brace':
+            replacementtext = "[{0}] "
+
+        rendernode.text = re.sub(r'\\bibitem\{\w+\} ?', replacementtext.format(index), rendernode.text)
 
         return rendernode
 
