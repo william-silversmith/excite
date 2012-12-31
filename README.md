@@ -12,13 +12,15 @@ _Example usage:_
 
 In _The Checklist Manifesto_, Dr. Atul Gawande saw checklists as a guard against human deficiencies in practicing medicine. At one point in his book, Dr. Gawande relayed the striking story of Dr. Peter Pronovost. At Johns Hopkins, he was able to reduce the incidence of ten day central-line infections in his hospital from eleven percent to zero over a year long observation period by using checklists to standardize the installation procedure \cite{manifesto}.
 
-References:
+*References:*
 
 \bibitem{manifesto} Gawande, Atul. The Checklist Manifesto. Profile Books, 2011. ISBN (10) 1846683149 (13) 9781846683145
 
 _Becomes:_
 
 In _The Checklist Manifesto_, Dr. Atul Gawande saw checklists as a guard against human deficiencies in practicing medicine. At one point in his book, Dr. Gawande relayed the striking story of Dr. Peter Pronovost. At Johns Hopkins, he was able to reduce the incidence of ten day central-line infections in his hospital from eleven percent to zero over a year long observation period by using checklists to standardize the installation procedure [1].
+
+This is useful when the document is longer and there are more references, especially as you revise it.
 
 References:
 
