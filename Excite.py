@@ -10,6 +10,18 @@ import re
 from xml.etree import ElementTree
 from collections import defaultdict
 
+class MissingReferenceError(StandardError):
+    def __init__(self, message, badcites):
+        super(MissingReferenceError, self).__init__(message)
+        self.message = message
+        self.badcites = badcites
+
+class DuplicateReferenceError(StandardError):
+    def __init__(self, message, badrefs):
+        super(DuplicateReferenceError, self).__init__(message)
+        self.message = message
+        self.badrefs = badrefs
+
 def alltext(node):
     """Get all text from an ElementTree node."""
     text = ""
@@ -20,7 +32,7 @@ def alltext(node):
 def maybestr(obj):
     if obj is None:
         return ""
-    return str(obj)
+    return unicode(obj)
 
 def copyelement(fromnode, tonode):
     tonode.clear()
@@ -45,7 +57,9 @@ class Bibliography(object):
         self.references = defaultdict(str)
 
     def AddCitation(self, label):
-        assert type(label) is str
+        assert type(label) in (str, unicode)
+
+        label = unicode(label)
 
         self.citations.append(label)
 
@@ -53,10 +67,11 @@ class Bibliography(object):
             self.__MaybeUpdateOrder(label)
 
     def AddReference(self, label, reference):
-        assert type(label) is str
+        assert type(label) in (str, unicode)
+        label = unicode(label)
 
         if self.references.has_key(label):
-            raise KeyError('Duplicate references.')
+            raise DuplicateReferenceError(message=u'Duplicate references found when adding a reference.', badrefs=[label])
 
         self.references[label] = reference
 
@@ -75,11 +90,11 @@ class Bibliography(object):
 
     def Index(self, label):
         """Return the index associated with a label."""
-        return self.order[label]
+        return self.order[unicode(label)]
 
     def GetReferenceByLabel(self, label):
         """Get (label, index, reference representation) by the reference's label."""
-        return (label, self.Index(label), self.references[label])
+        return (label, self.Index(label), self.references[unicode(label)])
 
     def GetReferenceByIndex(self, index):
         """Get (label, index, reference representation) by the reference's index."""
@@ -90,10 +105,10 @@ class Bibliography(object):
                 return (label, index, self.references[label])
 
     def IsConsistent(self):
-        """Returns True if the citations and references are consistent with each other.
+        """Returns True if all the citations correspond to references.
         This method is intended to be called after a full pass of a document has been completed."""
 
-        return set(self.order.keys()) == set(self.references.keys())
+        return set(self.citations).intersection(set(self.references.keys())) == set(self.citations)
 
     def Count(self):
         return max(len(self.order), len(self.references))
@@ -107,8 +122,8 @@ class WordProcessingDocument(object):
 
     def __init__(self, filename):
         self.filename = filename
-        self.citationformat = r"\\cite\{(\w+)\}"
-        self.bibformat = r'\\bibitem\{(\w+)\} ?(.*)'
+        self.citationformat = ur"\\cite\{(\w+)\}"
+        self.bibformat = ur'\\bibitem\{(\w+)\} ?(.*)'
 
     def ProcessCitations(self, style, orderby):
         """Internally construct a version of the document that has the citations properly created."""
@@ -121,16 +136,16 @@ class WordProcessingDocument(object):
 class ApplePages(WordProcessingDocument):
     """Represents a processor for an Apple iWork Pages document."""
     
-    primarydocument = 'index.xml' # Where in the zip archive is the primary XML document located
-    supportedcitestyles = ('square-brace')
-    supportedbibstyles = ('square-brace', 'digit-dot')
+    primarydocument = u'index.xml' # Where in the zip archive is the primary XML document located
+    supportedcitestyles = (u'square-brace')
+    supportedbibstyles = (u'square-brace', u'digit-dot')
 
     # XML namespaces present in .pages XML
     xmlnamespaces = {
-        "sf": "http://developer.apple.com/namespaces/sf",
-        "sfa": "http://developer.apple.com/namespaces/sfa", 
-        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-        "sl": "http://developer.apple.com/namespaces/sl",
+        u"sf": u"http://developer.apple.com/namespaces/sf",
+        u"sfa": u"http://developer.apple.com/namespaces/sfa", 
+        u"xsi": u"http://www.w3.org/2001/XMLSchema-instance",
+        u"sl": u"http://developer.apple.com/namespaces/sl",
     }
 
     def __init__(self, filename):
@@ -153,11 +168,11 @@ class ApplePages(WordProcessingDocument):
             insertionpointparent.remove(insertionpoint)
             
 
-    def ProcessCitations(self, citestyle='square-brace', bibstyle='digit-dot', orderby='citation-first'):
+    def ProcessCitations(self, citestyle=u'square-brace', bibstyle=u'digit-dot', orderby=u'citation-first'):
         """Internally construct a version of the document that has the citations properly created."""
         assert citestyle in self.supportedcitestyles
         assert bibstyle in self.supportedbibstyles
-        assert orderby in ('citation-first', 'reference-first')
+        assert orderby in (u'citation-first', u'reference-first')
 
         bibliography = Bibliography(orderby=orderby)
         citationnodes = []
@@ -179,7 +194,10 @@ class ApplePages(WordProcessingDocument):
                 bibliography.AddReference(bibitemmatch.group(1), node)
 
         if bibliography.IsConsistent() == False:
-            raise ValueError("Citations and references are not one-to-one.")
+            raise MissingReferenceError(
+                message=u"Encountered citations that do not have a corresponding reference.", 
+                badcites=set(bibliography.citations).difference(set(bibliography.references.keys()))
+            )
         
         self.__ReplaceCitationMarkers(style=citestyle, citationnodes=citationnodes, bibliography=bibliography)
         self.__ReplaceBibitemMarkers(style=bibstyle, bibnodes=bibnodes, bibliography=bibliography)
@@ -200,8 +218,9 @@ class ApplePages(WordProcessingDocument):
                 return None
 
             for label in re.findall(self.citationformat, text):
+                label = unicode(label)
                 replacementtext = self.RenderCitation(style=style, index=bibliography.Index(label))
-                replacementpattern = r'\\cite\{' + label + r'\}'
+                replacementpattern = ur'\\cite\{' + label + ur'\}'
                 text = re.sub(replacementpattern, replacementtext, text)
 
             return text
@@ -220,10 +239,10 @@ class ApplePages(WordProcessingDocument):
 
         assert style in ApplePages.supportedcitestyles
 
-        if style == 'square-brace':
-            return "[{0}]".format(index)
+        if style == u'square-brace':
+            return u"[{0}]".format(index)
 
-        return str(index)    
+        return unicode(index)    
 
     def __ReplaceBibitemMarkers(self, style, bibnodes, bibliography):
         """Helper method for ProcessCitations. Changes document to replace
@@ -252,12 +271,12 @@ class ApplePages(WordProcessingDocument):
         rendernode = ElementTree.Element(self.ns("sf:p"))
         copyelement(fromnode=referencenode, tonode=rendernode)
 
-        if style == 'digit-dot':
-            replacementtext = "{0}. "
-        elif style == 'square-brace':
-            replacementtext = "[{0}] "
+        if style == u'digit-dot':
+            replacementtext = u"{0}. "
+        elif style == u'square-brace':
+            replacementtext = u"[{0}] "
 
-        rendernode.text = re.sub(r'\\bibitem\{\w+\} ?', replacementtext.format(index), rendernode.text)
+        rendernode.text = re.sub(ur'\\bibitem\{\w+\} ?', replacementtext.format(index), maybestr(rendernode.text))
 
         return rendernode
 
@@ -267,7 +286,7 @@ class ApplePages(WordProcessingDocument):
             shutil.copy2(self.filename, outputfilename)
 
         with zipfile.ZipFile(outputfilename, 'a') as pageszip:
-            finalxml = ElementTree.tostring(element=self.document, encoding='us-ascii', method='xml')
+            finalxml = ElementTree.tostring(element=self.document, encoding='utf-8', method='xml')
             # finalxml should be bytes, which is why us-ascii was chosen as the encoding
             pageszip.writestr(ApplePages.primarydocument, finalxml) 
 
@@ -276,8 +295,8 @@ class ApplePages(WordProcessingDocument):
 
         # ElementTree represents namespaces like so: sf:p -> {http://developer.apple.com/namespaces/sf}p
         for namespace in ApplePages.xmlnamespaces.keys():
-            pattern = namespace + ":"
-            string = re.sub(pattern, "{{{0}}}".format(ApplePages.xmlnamespaces[namespace]), string)
+            pattern = unicode(namespace + ":")
+            string = re.sub(pattern, u"{{{0}}}".format(ApplePages.xmlnamespaces[namespace]), string)
 
         return string
 

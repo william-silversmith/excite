@@ -71,7 +71,21 @@ document = Excite.WordProcessingDocument(infile)
 if infile.endswith('.pages'):
     document = Excite.ApplePages(infile)
 
-document.ProcessCitations(citestyle=citestyle, bibstyle=bibstyle, orderby=orderby)
+fatalerror = False
+
+try:
+    document.ProcessCitations(citestyle=citestyle, bibstyle=bibstyle, orderby=orderby)
+except Excite.DuplicateReferenceError as e:
+    print e.message + "\nBad reference(s): " + ", ".join(list(e.badrefs))
+    fatalerror = True
+except Excite.MissingReferenceError as e:
+    print e.message + "\nBad citation(s): " + ", ".join(list(e.badcites))
+    fatalerror = True
+
+if fatalerror:
+    print "No files were output. Your original file is untouched."
+    sys.exit(2)
+
 document.Materialize(outfile)
 
 print "Output to: " + outfile
