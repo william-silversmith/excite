@@ -24,14 +24,14 @@ class DuplicateReferenceError(StandardError):
 
 def alltext(node):
     """Get all text from an ElementTree node."""
-    text = ""
+    text = u""
     for t in node.itertext():
         text += t
-    return text
+    return unicode(text)
 
 def maybestr(obj):
     if obj is None:
-        return ""
+        return u""
     return unicode(obj)
 
 def copyelement(fromnode, tonode):
@@ -48,8 +48,8 @@ class Bibliography(object):
     """Represents the bibliography. Notes the order of citations and renders the
     bibliography in that order."""
 
-    def __init__(self, orderby='citation-first'):
-        assert orderby in ('citation-first', 'reference-first')
+    def __init__(self, orderby=u'citation-first'):
+        assert orderby in (u'citation-first', u'reference-first')
 
         self.order = {}
         self.orderby = orderby
@@ -63,7 +63,7 @@ class Bibliography(object):
 
         self.citations.append(label)
 
-        if self.orderby == 'citation-first':
+        if self.orderby == u'citation-first':
             self.__MaybeUpdateOrder(label)
 
     def AddReference(self, label, reference):
@@ -75,7 +75,7 @@ class Bibliography(object):
 
         self.references[label] = reference
 
-        if self.orderby == 'reference-first':
+        if self.orderby == u'reference-first':
             self.__MaybeUpdateOrder(label)
 
     def __MaybeUpdateOrder(self, label):
@@ -287,14 +287,13 @@ class ApplePages(WordProcessingDocument):
 
         with zipfile.ZipFile(outputfilename, 'a') as pageszip:
             finalxml = ElementTree.tostring(element=self.document, encoding='utf-8', method='xml')
-            # finalxml should be bytes, which is why us-ascii was chosen as the encoding
             pageszip.writestr(ApplePages.primarydocument, finalxml) 
 
     def ns(self, string):
         """Provides transformation of namespaced tags into something ElementTree can understand."""
 
         # ElementTree represents namespaces like so: sf:p -> {http://developer.apple.com/namespaces/sf}p
-        for namespace in ApplePages.xmlnamespaces.keys():
+        for namespace in ApplePages.xmlnamespaces:
             pattern = unicode(namespace + ":")
             string = re.sub(pattern, u"{{{0}}}".format(ApplePages.xmlnamespaces[namespace]), string)
 
