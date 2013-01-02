@@ -35,6 +35,10 @@ def maybestr(obj):
     return unicode(obj)
 
 def copyelement(fromnode, tonode):
+    """Replaces the information in an ElementTree.Element with another. This
+    eases in-place insertion into a document tree when the parent and index
+    of the child are unknown."""
+
     tonode.clear()
     tonode.tag = fromnode.tag
     tonode.text = fromnode.text
@@ -43,6 +47,14 @@ def copyelement(fromnode, tonode):
 
     for i, child in enumerate(fromnode):
         tonode.insert(i, child)
+
+def traversetransform(node, transformingfunc):
+    """Transforms the text of each node in an ElementTree.Element subtree via a transforming function
+    that accepts a string and returns a transformed string."""
+    node.text = transformingfunc(node.text)
+    node.tail = transformingfunc(node.tail)
+    for nextnode in node:
+        traversetransform(nextnode, transformingfunc)
 
 class Bibliography(object):
     """Represents the bibliography. Notes the order of citations and renders the
@@ -225,14 +237,8 @@ class ApplePages(WordProcessingDocument):
 
             return text
 
-        def traverse(node):
-            node.text = replacecitation(node.text)
-            node.tail = replacecitation(node.tail)
-            for nextnode in node:
-                traverse(nextnode)
-
         for node in citationnodes:
-            traverse(node)
+            traversetransform(node=node, transformingfunc=replacecitation)
 
     def RenderCitation(self, style, index):
         """Produces the final XML that represents the citation."""
@@ -276,7 +282,20 @@ class ApplePages(WordProcessingDocument):
         elif style == u'square-brace':
             replacementtext = u"[{0}] "
 
-        rendernode.text = re.sub(ur'\\bibitem\{\w+\} ?', replacementtext.format(index), maybestr(rendernode.text))
+        replacementtext = replacementtext.format(index)
+        replacementpattern = ur'\\bibitem\{' + label + ur'\}'
+
+        def replacebib(text):
+            if text == None:
+                return None
+
+            for label in re.findall(replacementpattern, text):
+                label = unicode(label)
+                text = re.sub(replacementpattern, replacementtext, text)
+
+            return text
+
+        traversetransform(node=rendernode, transformingfunc=replacebib)
 
         return rendernode
 
