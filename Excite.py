@@ -174,11 +174,20 @@ class ApplePages(WordProcessingDocument):
         insertionpointparent = self.document.find(self.ns('.//sf:insertion-point/..'))
         if insertionpointparent is not None:
             insertionpoint = self.document.find(self.ns('.//sf:insertion-point'))
-            insertionpointparent.text = maybestr(insertionpointparent.text) + maybestr(insertionpoint.text) + maybestr(insertionpoint.tail)
-            insertionpointparent.text += maybestr(insertionpointparent.tail)
-            insertionpointparent.tail = None
-            insertionpointparent.remove(insertionpoint)
-            
+
+            children = insertionpointparent.getchildren()
+            previous = children[0]
+
+            for child in children:
+                if previous.tail is None:
+                    previous.tail = u""
+                
+                if child is insertionpoint:
+                    previous.tail += maybestr(insertionpoint.text) + maybestr(insertionpoint.tail)
+                    insertionpointparent.remove(insertionpoint)
+                    break
+                else:
+                    previous = child            
 
     def ProcessCitations(self, citestyle=u'square-brace', bibstyle=u'digit-dot', orderby=u'citation-first'):
         """Internally construct a version of the document that has the citations properly created."""
