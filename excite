@@ -12,7 +12,7 @@ Process LaTeX style citations in a word processing document and output them in a
 
 By default if the infile is name.ext then the outfile is name.out.extension.
 
--c, --citestyle: one of: square-brace (default)
+-c, --citestyle: one of: square-brace (default), superscript, parens
 -b, --bibstyle: one of: digit-dot (default), square-brace
 
 --citationfirst: (default) Reference numbers are ordered by the first occurance of a citation.

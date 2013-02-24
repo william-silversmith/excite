@@ -149,8 +149,15 @@ class ApplePages(WordProcessingDocument):
     """Represents a processor for an Apple iWork Pages document."""
     
     primarydocument = u'index.xml' # Where in the zip archive is the primary XML document located
-    supportedcitestyles = (u'square-brace')
+    supportedcitestyles = (u'square-brace', u'superscript', u'parens')
     supportedbibstyles = (u'square-brace', u'digit-dot')
+
+    styles = {
+        # 50,000 is simply a high number as it's simpler and faster hope no one makes page that big than to have to figure out
+        # a unique ID by parsing the tree. We can do that if necessary.
+        'superscript': u"SFWPCharacterStyle-50000",
+    }
+
 
     # XML namespaces present in .pages XML
     xmlnamespaces = {
@@ -169,8 +176,39 @@ class ApplePages(WordProcessingDocument):
         with zipfile.ZipFile(filename, 'r') as pageszip:
             self.document = ElementTree.XML(pageszip.read(ApplePages.primarydocument))
 
-        # Sometimes the insertion point can be inside the citation and
-        # prevent correct parsing.
+        self.__FixInsertionPoint()
+        self.__AddStyles()
+
+    def __AddStyles(self):
+        """The XML document needs styles present in the header in order to be able to 
+        handle e.g. superscripts."""
+
+        # Superscript Example:
+        # <sf:characterstyle sf:parent-ident="character-style-null" sfa:ID="SFWPCharacterStyle-10">
+        #   <sf:property-map>
+        #       <sf:superscript>
+        #           <sf:number sfa:number="1" sfa:type="i"/>
+        #       </sf:superscript>
+        #   </sf:property-map>
+        # </sf:characterstyle>
+
+        styleparent = self.document.find(self.ns('.//sf:anon-styles'))
+
+        style = ElementTree.SubElement(parent=styleparent, tag=self.ns('sf:characterstyle'), attrib={ 
+            self.ns('sf:parent-ident'): u"character-style-null",
+            self.ns('sfa:ID'): self.styles['superscript'], 
+        })
+        pmap = ElementTree.SubElement(parent=style, tag=self.ns('sf:property-map'))
+        superscript = ElementTree.SubElement(parent=pmap, tag=self.ns('sf:superscript'))
+        number = ElementTree.SubElement(parent=superscript, tag=self.ns('sf:number'), attrib={
+            self.ns('sfa:number'): u"1",
+            self.ns('sfa:type'): u"i",
+        })
+
+    def __FixInsertionPoint(self):
+        """The insertion point breaks apart text nodes and can prevent correct parsing by
+        breaking apart the markup."""
+
         insertionpointparent = self.document.find(self.ns('.//sf:insertion-point/..'))
         if insertionpointparent is not None:
             insertionpoint = self.document.find(self.ns('.//sf:insertion-point'))
@@ -181,7 +219,7 @@ class ApplePages(WordProcessingDocument):
             for child in children:
                 if previous.tail is None:
                     previous.tail = u""
-                
+
                 if child is insertionpoint:
                     previous.tail += maybestr(insertionpoint.text) + maybestr(insertionpoint.tail)
                     insertionpointparent.remove(insertionpoint)
@@ -191,9 +229,9 @@ class ApplePages(WordProcessingDocument):
 
     def ProcessCitations(self, citestyle=u'square-brace', bibstyle=u'digit-dot', orderby=u'citation-first'):
         """Internally construct a version of the document that has the citations properly created."""
-        assert citestyle in self.supportedcitestyles
-        assert bibstyle in self.supportedbibstyles
-        assert orderby in (u'citation-first', u'reference-first')
+        assert citestyle in self.supportedcitestyles, citestyle + " is not a supported citation style."
+        assert bibstyle in self.supportedbibstyles, bibstyle + " is not a supported bibliography style."
+        assert orderby in (u'citation-first', u'reference-first'), orderby + " is not a supported ordering."
 
         bibliography = Bibliography(orderby=orderby)
         citationnodes = []
@@ -242,12 +280,19 @@ class ApplePages(WordProcessingDocument):
                 label = unicode(label)
                 replacementtext = self.RenderCitation(style=style, index=bibliography.Index(label))
                 replacementpattern = ur'\\cite\{' + label + ur'\}'
-                text = re.sub(replacementpattern, replacementtext, text)
+                text = re.sub(replacementpattern, replacementtext, text, flags=re.UNICODE)
 
             return text
 
         for node in citationnodes:
-            traversetransform(node=node, transformingfunc=replacecitation)
+            xml = ElementTree.tostring(node, encoding="utf-8", method="xml")
+
+            if type(xml) is str:
+                xml = unicode(xml, encoding='utf8')
+
+            xml = replacecitation(xml).encode('ascii', 'xmlcharrefreplace')
+            modifiednode = ElementTree.XML(xml)
+            copyelement(fromnode=modifiednode, tonode=node)
 
     def RenderCitation(self, style, index):
         """Produces the final XML that represents the citation."""
@@ -256,6 +301,10 @@ class ApplePages(WordProcessingDocument):
 
         if style == u'square-brace':
             return u"[{0}]".format(index)
+        elif style == u'superscript':
+            return u"<sf:span sf:style=\"{0}\">{1}</sf:span>".format(self.styles['superscript'], index)
+        elif style == u'parens':
+            return u"({0})".format(index)
 
         return unicode(index)    
 
